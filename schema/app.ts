@@ -12,6 +12,7 @@ import {
   uniqueIndex,
   uuid,
   varchar,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 export const appSchema = pgSchema("app");
@@ -42,6 +43,7 @@ export const walletNonces = appSchema.table(
   },
   (table) => [
     uniqueIndex("wallet_nonce_active_unique").on(table.chainId, table.address, table.nonceHash),
+    index("wallet_nonce_expiry_idx").on(table.expiresAt),
   ],
 );
 
@@ -56,7 +58,24 @@ export const walletSessions = appSchema.table(
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [index("wallet_session_address_idx").on(table.chainId, table.address)],
+  (table) => [
+    index("wallet_session_address_idx").on(table.chainId, table.address),
+    uniqueIndex("wallet_session_token_unique").on(table.tokenHash),
+    index("wallet_session_expiry_idx").on(table.expiresAt),
+  ],
+);
+
+export const writeRateLimits = appSchema.table(
+  "write_rate_limit",
+  {
+    keyHash: varchar("key_hash", { length: 66 }).notNull(),
+    bucketStart: bigint("bucket_start", { mode: "number" }).notNull(),
+    requestCount: integer("request_count").default(1).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.keyHash, table.bucketStart] }),
+    index("write_rate_limit_expiry_idx").on(table.bucketStart),
+  ],
 );
 
 export const comments = appSchema.table(
@@ -68,11 +87,12 @@ export const comments = appSchema.table(
     marketVault: varchar("market_vault", { length: 42 }).notNull(),
     marketVersion: integer("market_version").notNull(),
     authorAddress: varchar("author_address", { length: 42 }).notNull(),
-    rootCommentId: uuid("root_comment_id"),
-    parentCommentId: uuid("parent_comment_id"),
-    replyToCommentId: uuid("reply_to_comment_id"),
+    rootCommentId: uuid("root_comment_id").references((): AnyPgColumn => comments.id, { onDelete: "set null" }),
+    parentCommentId: uuid("parent_comment_id").references((): AnyPgColumn => comments.id, { onDelete: "set null" }),
+    replyToCommentId: uuid("reply_to_comment_id").references((): AnyPgColumn => comments.id, { onDelete: "set null" }),
     body: text("body").notNull(),
     bodyNormalizedHash: varchar("body_normalized_hash", { length: 66 }).notNull(),
+    challengeId: uuid("challenge_id"),
     status: commentStatus("status").default("ACTIVE").notNull(),
     positionSideAtPost: positionSide("position_side_at_post").default("UNVERIFIED").notNull(),
     positionBlockNumber: bigint("position_block_number", { mode: "bigint" }),
@@ -81,7 +101,9 @@ export const comments = appSchema.table(
   },
   (table) => [
     index("comment_contest_live_idx").on(table.chainId, table.contestId, table.createdAt),
+    index("comment_author_rate_idx").on(table.chainId, table.contestId, table.authorAddress, table.createdAt),
     index("comment_root_idx").on(table.rootCommentId, table.createdAt),
+    uniqueIndex("comment_challenge_unique").on(table.challengeId),
   ],
 );
 
@@ -89,7 +111,7 @@ export const commentReactions = appSchema.table(
   "comment_reaction",
   {
     chainId: integer("chain_id").notNull(),
-    commentId: uuid("comment_id").notNull(),
+    commentId: uuid("comment_id").notNull().references(() => comments.id, { onDelete: "cascade" }),
     userAddress: varchar("user_address", { length: 42 }).notNull(),
     type: varchar("type", { length: 16 }).default("LIKE").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -125,6 +147,7 @@ export const uploadedAssets = appSchema.table("uploaded_asset", {
   byteSize: integer("byte_size").notNull(),
   storageKey: text("storage_key").notNull().unique(),
   originalName: text("original_name"),
+  uploaderAddress: varchar("uploader_address", { length: 42 }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
