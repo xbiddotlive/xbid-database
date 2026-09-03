@@ -118,3 +118,24 @@ export const outboxEvents = appSchema.table(
     index("outbox_unpublished_idx").on(table.publishedAt, table.sequence),
   ],
 );
+
+export const uploadedAssets = appSchema.table("uploaded_asset", {
+  contentHash: varchar("content_hash", { length: 66 }).primaryKey(),
+  mimeType: varchar("mime_type", { length: 32 }).notNull(),
+  byteSize: integer("byte_size").notNull(),
+  storageKey: text("storage_key").notNull().unique(),
+  originalName: text("original_name"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const contestMetadata = appSchema.table(
+  "contest_metadata",
+  {
+    metadataHash: varchar("metadata_hash", { length: 66 }).primaryKey(),
+    metadataUri: text("metadata_uri").notNull().unique(),
+    metadataJson: jsonb("metadata_json").notNull(),
+    creatorAddress: varchar("creator_address", { length: 42 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index("contest_metadata_creator_idx").on(table.creatorAddress, table.createdAt)],
+);
